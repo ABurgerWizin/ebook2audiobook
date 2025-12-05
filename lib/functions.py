@@ -49,6 +49,34 @@ from lib.classes.subprocess_pipe import SubprocessPipe
 from lib.classes.vram_detector import VRAMDetector
 from lib.classes.voice_extractor import VoiceExtractor
 from lib.classes.tts_manager import TTSManager
+
+# DEPRECATED: Stubs for removed TTS engine data (legacy code still references these)
+# The new pipeline in lib/pipeline.py does not use these.
+# TODO: Remove the legacy conversion functions in future cleanup
+
+language_tts = {}
+language_math_phonemes = {"eng": {}}
+language_clock = {}
+
+# Legacy TTS engine stubs (models.py was deleted)
+TTS_ENGINES = {
+    'XTTSv2': 'xtts', 
+    'BARK': 'bark',
+    'VITS': 'vits',
+    'FAIRSEQ': 'fairseq',
+    'TACOTRON2': 'tacotron2',
+    'YOURTTS': 'yourtts'
+}
+default_engine_settings = {
+    'xtts': {'temperature': 0.75, 'length_penalty': 1.0, 'num_beams': 1, 'repetition_penalty': 2.0, 
+             'top_k': 50, 'top_p': 0.85, 'speed': 1.0, 'enable_text_splitting': True, 'rating': {'RAM': 4, 'VRAM': 4}},
+    'bark': {'text_temp': 0.7, 'waveform_temp': 0.7, 'speakers_path': 'voices', 'rating': {'RAM': 8, 'VRAM': 8}},
+}
+default_tts_engine = 'xtts'
+default_fine_tuned = 'internal'
+models = {}
+default_vc_model = None
+default_voice_detection_model = None
 #from lib.classes.redirect_console import RedirectConsole
 #from lib.classes.argos_translator import ArgosTranslator
 

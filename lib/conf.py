@@ -24,8 +24,6 @@ components_dir = os.path.abspath('components')
 # ---------------------------------------------------------------------
 os.environ['PYTHONUTF8'] = '1'
 os.environ['PYTHONIOENCODING'] = 'utf-8'
-os.environ['COQUI_TOS_AGREED'] = '1'
-os.environ['PYTHONIOENCODING'] = 'utf-8'
 os.environ['CALIBRE_NO_NATIVE_FILEDIALOGS'] = '1'
 os.environ['CALIBRE_TEMP_DIR'] = tmp_dir
 os.environ['CALIBRE_CACHE_DIRECTORY'] = tmp_dir
@@ -35,23 +33,14 @@ os.environ['DO_NOT_TRACK'] = 'True'
 os.environ['HUGGINGFACE_HUB_CACHE'] = tts_dir
 os.environ['HF_HOME'] = tts_dir
 os.environ['HF_DATASETS_CACHE'] = tts_dir
-os.environ['BARK_CACHE_DIR'] = tts_dir
-os.environ['TTS_CACHE'] = tts_dir
 os.environ['TORCH_HOME'] = tts_dir
-os.environ['TTS_HOME'] = models_dir
 os.environ['XDG_CACHE_HOME'] = models_dir
 os.environ['TESSDATA_PREFIX'] = f'{models_dir}/tessdata'
 os.environ['STANZA_RESOURCES_DIR'] = os.path.join(models_dir, 'stanza')
-os.environ['ARGOS_TRANSLATE_PACKAGE_PATH'] = os.path.join(models_dir, 'argostranslate')
 os.environ['TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD'] = '1'
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:32,garbage_collection_threshold:0.6,expandable_segments:True'
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["CUDA_CACHE_MAXSIZE"] = "2147483648"
-os.environ['SUNO_OFFLOAD_CPU'] = 'False'
-os.environ['SUNO_USE_SMALL_MODELS'] = 'False'
 if platform.system() == 'Windows':
     os.environ['ESPEAK_DATA_PATH'] = os.path.expandvars(r"%USERPROFILE%\scoop\apps\espeak-ng\current\eSpeak NG\espeak-ng-data")
 
@@ -150,10 +139,10 @@ interface_shared_tmp_expire = 3 # in days
 interface_concurrency_limit = 1 # or None for unlimited multiple parallele user conversion
 
 interface_component_options = {
-    "gr_tab_xtts_params": True,
-    "gr_tab_bark_params": True,
+    "gr_tab_chatterbox_params": True,
     "gr_group_voice_file": True,
-    "gr_group_custom_model": True
+    "gr_enable_preview": True,
+    "gr_enable_server_mode": True
 }
 
 # ---------------------------------------------------------------------
@@ -186,3 +175,36 @@ default_output_format = 'm4b'
 default_output_channel = 'mono' # mono or stereo
 default_output_split = False
 default_output_split_hours = '6' # if the final ouput esceed outpout_split_hours * 2 hours the final file will be splitted by outpout_split_hours + the end if any.
+
+# ---------------------------------------------------------------------
+# TTS Engine Configuration (Chatterbox)
+# ---------------------------------------------------------------------
+
+# Special Markup Language tokens for pause/break insertion
+TTS_SML = {
+    "break": "‡break‡",
+    "pause": "‡pause‡",
+    "###": "‡pause‡"
+}
+
+# Global model cache (shared across sessions)
+loaded_tts = {}
+
+# Inference mode: 'local' loads model in-process, 'client' connects to remote server
+INFERENCE_MODE = os.environ.get('INFERENCE_MODE', 'local')  # 'local' or 'client'
+INFERENCE_API_URL = os.environ.get('INFERENCE_API_URL', 'http://localhost:8000')
+
+# Chatterbox model settings
+chatterbox_model_path = os.environ.get('CHATTERBOX_MODEL_PATH', os.path.join(models_dir, 'chatterbox'))
+chatterbox_model_type = 'english'  # 'english' or 'multilingual'
+
+# Chatterbox inference defaults
+chatterbox_defaults = {
+    "exaggeration": 0.5,
+    "cfg_weight": 0.5,
+    "temperature": 0.8,
+    "samplerate": 24000,
+}
+
+# Temporary audio format for intermediate chunks: 'flac' (recommended), 'mp3', or 'wav'
+temp_audio_format = os.environ.get('TEMP_AUDIO_FORMAT', 'flac')
