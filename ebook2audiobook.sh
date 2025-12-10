@@ -50,6 +50,7 @@ WGET=$(which wget 2>/dev/null)
 
 typeset -A arguments # associative array
 typeset -a programs_missing # indexed array
+typeset -a SHELL_ONLY_ARGS=("script_mode" "docker_device" "python_version")
 
 ARGS=("$@")
 
@@ -71,6 +72,26 @@ while (( $# > 0 )); do
 			exit 1
 			;;
 	esac
+	shift
+done
+
+# Filter out shell-only arguments before passing to Python
+PYTHON_ARGS=()
+set -- "${ARGS[@]}"
+while (( $# > 0 )); do
+	skip=0
+	for shell_arg in "${SHELL_ONLY_ARGS[@]}"; do
+		if [[ "$1" == "--$shell_arg" ]]; then
+			skip=1
+			if [[ -n "$2" && "$2" != --* ]]; then
+				shift
+			fi
+			break
+		fi
+	done
+	if [[ $skip -eq 0 ]]; then
+		PYTHON_ARGS+=("$1")
+	fi
 	shift
 done
 
@@ -735,7 +756,7 @@ function build_docker_image {
 ########################################
 
 if [[ -n "${arguments[help]+exists}" && ${arguments[help]} == true ]]; then
-	python "$SCRIPT_DIR/app.py" "${ARGS[@]}"
+	python "$SCRIPT_DIR/app.py" "${PYTHON_ARGS[@]}"
 else
 	if [[ "$SCRIPT_MODE" == "$BUILD_DOCKER" ]]; then
 		if [[ "$DOCKER_DEVICE_STR" == "" ]]; then
@@ -780,7 +801,7 @@ else
 		conda activate "$SCRIPT_DIR/$PYTHON_ENV" || { echo -e "\e[31m===============>>> conda activate failed.\e[0m"; exit 1; }
 		check_sitecustomized || exit 1
 		check_desktop_app || exit 1
-		python "$SCRIPT_DIR/app.py" --script_mode "$SCRIPT_MODE" "${ARGS[@]}" || exit 1
+		python "$SCRIPT_DIR/app.py" --script_mode "$SCRIPT_MODE" "${PYTHON_ARGS[@]}" || exit 1
 		conda deactivate > /dev/null 2>&1
 		conda deactivate > /dev/null 2>&1
 	else
