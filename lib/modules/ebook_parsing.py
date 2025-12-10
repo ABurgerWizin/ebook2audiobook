@@ -257,6 +257,7 @@ class EbookParser:
     
     def _extract_chapters(self, book) -> List[Chapter]:
         """Extract chapters from EPUB book."""
+        import ebooklib
         from ebooklib import epub
         
         chapters = []
@@ -308,6 +309,7 @@ class EbookParser:
     
     def _extract_cover(self, book, epub_path: Path) -> Optional[str]:
         """Extract cover image from EPUB."""
+        import ebooklib
         from ebooklib import epub
         
         try:

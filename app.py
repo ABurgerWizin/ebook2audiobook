@@ -257,7 +257,7 @@ def run_headless(args: argparse.Namespace) -> int:
             logger.info(f"Created: {output_path}")
         
         except Exception as e:
-            logger.error(f"Failed to convert {ebook_path.name}: {e}")
+            logger.error(f"Failed to convert {ebook_path.name}: {e}", exc_info=True)
             failed.append(ebook_path)
             continue
     
