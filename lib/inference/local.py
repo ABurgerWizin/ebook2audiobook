@@ -92,6 +92,10 @@ class LocalChatterboxEngine(TTSInterface):
     
     def _load_model(self):
         """Load the Chatterbox model."""
+        # Suppress verbose ChatterTTS logs
+        logging.getLogger("ChatterTTS").setLevel(logging.WARNING)
+        logging.getLogger("chatterbox").setLevel(logging.WARNING)
+
         logger.info(f"Loading Chatterbox [{self._model_type}] on {self._device}")
         logger.info(f"Model path: {self.config.model_path}")
         

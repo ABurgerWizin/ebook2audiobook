@@ -7,6 +7,9 @@ import os
 import time
 import json
 import logging
+import uuid
+import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Callable
@@ -132,6 +135,19 @@ class ConversionPipeline:
         self._engine = None
         self._audio_pipeline: Optional[AudioPipeline] = None
         
+    def _get_session_id(self) -> str:
+        """Generate a short unique session ID."""
+        return str(uuid.uuid4())[:8]
+
+    def _get_safe_name(self, filename: str) -> str:
+        """Sanitize and shorten filename for directory usage."""
+        # Get base name without extension
+        name = Path(filename).stem
+        # Remove non-alphanumeric characters
+        safe_name = re.sub(r'[^a-zA-Z0-9]', '', name)
+        # Truncate to 16 chars
+        return safe_name[:16]
+        
     def set_progress_callback(self, callback: Callable[[ConversionProgress], None]):
         """Set callback for progress updates."""
         self._progress_callback = callback
@@ -148,8 +164,13 @@ class ConversionPipeline:
         Returns:
             Human-readable preview of segmentation
         """
+        # Create session-specific temp dir
+        session_id = self._get_session_id()
+        safe_name = self._get_safe_name(self.config.ebook_path)
+        session_dir = f"{safe_name}_{session_id}"
+        
         # Parse ebook
-        parser = EbookParser(temp_dir=os.path.join(tmp_dir, "preview"))
+        parser = EbookParser(temp_dir=os.path.join(tmp_dir, "preview", session_dir))
         parse_result = parser.parse(self.config.ebook_path)
         
         # Initialize segmenter
@@ -313,9 +334,14 @@ class ConversionPipeline:
     
     def _init_components(self):
         """Initialize all pipeline components."""
+        # Generate session ID and directory name
+        session_id = self._get_session_id()
+        safe_name = self._get_safe_name(self.config.ebook_path)
+        session_dir = f"{safe_name}_{session_id}"
+        
         # Parser
         self._parser = EbookParser(
-            temp_dir=os.path.join(tmp_dir, "ebook_parse")
+            temp_dir=os.path.join(tmp_dir, "ebook_parse", session_dir)
         )
         
         # Segmenter
@@ -352,7 +378,7 @@ class ConversionPipeline:
             sample_rate=self._engine.sample_rate
         )
         self._audio_pipeline = AudioPipeline(
-            work_dir=os.path.join(tmp_dir, "audio_work"),
+            work_dir=os.path.join(tmp_dir, "audio_work", session_dir),
             config=audio_config
         )
     
@@ -363,7 +389,15 @@ class ConversionPipeline:
         if self._parser:
             self._parser.cleanup()
         if self._audio_pipeline and self.config.cleanup_temp:
+            # First cleanup standard chapter files
             self._audio_pipeline.cleanup_all()
+            # Then remove the session directory
+            if self._audio_pipeline.work_dir.exists():
+                try:
+                    shutil.rmtree(self._audio_pipeline.work_dir)
+                    logger.debug(f"Removed session directory: {self._audio_pipeline.work_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove session directory: {e}")
 
 
 def convert_ebook_to_audiobook(
