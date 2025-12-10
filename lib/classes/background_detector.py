@@ -5,7 +5,9 @@ import librosa
 from pyannote.audio import Model
 from pyannote.audio.pipelines import VoiceActivityDetection
 from lib.conf import tts_dir
-from lib.models import default_voice_detection_model
+
+# Default voice activity detection model
+default_voice_detection_model = "pyannote/segmentation"
 
 class BackgroundDetector:
     def __init__(self,wav_file:str):
