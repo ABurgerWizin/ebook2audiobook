@@ -89,14 +89,25 @@ if [[ -n "${arguments[docker_device]+exists}" ]]; then
 		exit 1
 	fi
 fi
+if [[ -n "${arguments[python_version]+exists}" ]]; then
+	REQUESTED_PYTHON_VERSION="${arguments[python_version]}"
+	if [[ "$REQUESTED_PYTHON_VERSION" == "true" || -z "$REQUESTED_PYTHON_VERSION" ]]; then
+		echo "Error: --python_version requires a value (e.g., 3.11)"
+		exit 1
+	fi
+	if [[ ! "$REQUESTED_PYTHON_VERSION" =~ ^3\.[0-9]+$ ]]; then
+		echo "Error: --python_version must be in format X.Y (e.g., 3.11)"
+		exit 1
+	fi
+fi
 if [[ -v arguments[script_mode] ]]; then
 	if [[ "${arguments[script_mode]}" == "true" || -z "${arguments[script_mode]}" ]]; then
 		echo "Error: --script_mode requires a value"
 		exit 1
 	fi
 	for key in "${!arguments[@]}"; do
-		if [[ "$key" != "script_mode" && "$key" != "docker_device" ]]; then
-			echo "Error: when --script_mode is used, only --docker_device is allowed as additional option. Invalid option: --$key"
+		if [[ "$key" != "script_mode" && "$key" != "docker_device" && "$key" != "python_version" ]]; then
+			echo "Error: when --script_mode is used, only --docker_device and --python_version are allowed as additional options. Invalid option: --$key"
 			exit 1
 		fi
 	done
@@ -528,15 +539,37 @@ function check_conda {
 	function compare_versions {
 		local ver1=$1
 		local ver2=$2
-		# Pad each version to 3 parts
 		IFS='.' read -r v1_major v1_minor <<<"$ver1"
 		IFS='.' read -r v2_major v2_minor <<<"$ver2"
-
 		((v1_major < v2_major)) && return 1
 		((v1_major > v2_major)) && return 2
 		((v1_minor < v2_minor)) && return 1
 		((v1_minor > v2_minor)) && return 2
 		return 0
+	}
+
+	function get_env_python_version {
+		local env_path="$1"
+		if [[ -x "$env_path/bin/python" ]]; then
+			"$env_path/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null
+		fi
+	}
+
+	function determine_target_python_version {
+		local target_version="$PYTHON_VERSION"
+		if [[ -n "$REQUESTED_PYTHON_VERSION" ]]; then
+			target_version="$REQUESTED_PYTHON_VERSION"
+		elif [[ "$OSTYPE" == darwin* && "$ARCH" == "x86_64" ]]; then
+			target_version="3.11"
+		elif [[ -r /proc/device-tree/model ]]; then
+			local model=$(tr -d '\0' </proc/device-tree/model | tr 'A-Z' 'a-z')
+			[[ "$model" == *jetson* ]] && target_version="3.10"
+		fi
+		compare_versions "$target_version" "$MIN_PYTHON_VERSION"
+		[[ $? -eq 1 ]] && target_version="$MIN_PYTHON_VERSION"
+		compare_versions "$target_version" "$MAX_PYTHON_VERSION"
+		[[ $? -eq 2 ]] && target_version="$MAX_PYTHON_VERSION"
+		echo "$target_version"
 	}
 
 	if ! command -v conda &> /dev/null || [[ ! -f "$CONDA_ENV" ]]; then
@@ -575,31 +608,29 @@ function check_conda {
 			return 1
 		fi
 	fi
-	if [[ ! -d "$SCRIPT_DIR/$PYTHON_ENV" ]]; then
-		if [[ "$OSTYPE" == darwin* && "$ARCH" == "x86_64" ]]; then
-			PYTHON_VERSION="3.11"
-		elif [[ -r /proc/device-tree/model ]]; then
-			# Detect Jetson and select correct Python version
-			MODEL=$(tr -d '\0' </proc/device-tree/model | tr 'A-Z' 'a-z')
-			if [[ "$MODEL" == *jetson* ]]; then
-				PYTHON_VERSION="3.10"
-			fi
-		else
-			compare_versions "$PYTHON_VERSION" "$MIN_PYTHON_VERSION"
-			case $? in
-				1) PYTHON_VERSION="$MIN_PYTHON_VERSION" ;;
-			esac
-			compare_versions "$PYTHON_VERSION" "$MAX_PYTHON_VERSION"
-			case $? in
-				2) PYTHON_VERSION="$MAX_PYTHON_VERSION" ;;
-			esac
+
+	local target_version=$(determine_target_python_version)
+	local needs_create=0
+
+	if [[ -d "$SCRIPT_DIR/$PYTHON_ENV" ]]; then
+		local current_version=$(get_env_python_version "$SCRIPT_DIR/$PYTHON_ENV")
+		if [[ "$current_version" != "$target_version" ]]; then
+			echo -e "\e[33mPython version mismatch: env has $current_version, requested $target_version\e[0m"
+			echo -e "\e[33mRemoving existing python_env...\e[0m"
+			rm -rf "$SCRIPT_DIR/$PYTHON_ENV"
+			needs_create=1
 		fi
-		echo -e "\e[33mCreating ./python_env version $PYTHON_VERSION...\e[0m"
+	else
+		needs_create=1
+	fi
+
+	if [[ $needs_create -eq 1 ]]; then
+		echo -e "\e[33mCreating ./python_env with Python $target_version...\e[0m"
 		chmod -R u+rwX,go+rX "$SCRIPT_DIR/audiobooks" "$SCRIPT_DIR/tmp" "$SCRIPT_DIR/models"
 		conda update --all -y
 		conda clean --index-cache -y
 		conda clean --packages --tarballs -y
-		conda create --prefix "$SCRIPT_DIR/$PYTHON_ENV" python=$PYTHON_VERSION -y || return 1
+		conda create --prefix "$SCRIPT_DIR/$PYTHON_ENV" python=$target_version -y || return 1
 		source "$CONDA_ENV" || return 1
 		conda activate "$SCRIPT_DIR/$PYTHON_ENV" || return 1
 		install_python_packages || return 1
