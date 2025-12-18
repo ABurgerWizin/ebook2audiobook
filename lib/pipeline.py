@@ -253,6 +253,19 @@ class ConversionPipeline:
             parse_result = self._parser.parse(self.config.ebook_path)
             
             self.progress.total_chapters = len(parse_result.chapters)
+            
+            # Pre-scan and segment all chapters to get total segments
+            logger.info("Scanning chapters to calculate total progress...")
+            pre_calculated_segments = {}
+            total_segments = 0
+            
+            for chapter in parse_result.chapters:
+                seg_result = self._segmenter.segment_text(chapter.content, chapter.index)
+                pre_calculated_segments[chapter.index] = seg_result
+                total_segments += len(seg_result.segments)
+            
+            self.progress.total_segments = total_segments
+            logger.info(f"Total segments to process: {total_segments}")
             self._update_progress()
             
             # Process each chapter
@@ -264,9 +277,8 @@ class ConversionPipeline:
                 self.progress.current_chapter = chapter.title
                 self._update_progress()
                 
-                # Segment chapter text
-                seg_result = self._segmenter.segment_text(chapter.content, chapter.index)
-                self.progress.total_segments += len(seg_result.segments)
+                # Use pre-calculated segments
+                seg_result = pre_calculated_segments[chapter.index]
                 
                 # Generate audio for each segment
                 for seg_idx, segment in enumerate(seg_result.segments):

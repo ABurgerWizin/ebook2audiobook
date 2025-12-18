@@ -6,6 +6,9 @@ Loads the model in-process for single-user inference.
 import gc
 import time
 import logging
+import os
+import sys
+import contextlib
 from typing import Optional, List
 from pathlib import Path
 
@@ -15,6 +18,20 @@ import torchaudio
 from .abstract import TTSInterface, TTSConfig, TTSResult
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def suppress_output():
+    """Suppress stdout and stderr to hide underlying library progress bars."""
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        try:
+            sys.stdout = devnull
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
 
 class LocalChatterboxEngine(TTSInterface):
@@ -92,7 +109,6 @@ class LocalChatterboxEngine(TTSInterface):
     
     def _load_model(self):
         """Load the Chatterbox model."""
-        # Suppress verbose ChatterTTS logs
         logging.getLogger("ChatterTTS").setLevel(logging.WARNING)
         logging.getLogger("chatterbox").setLevel(logging.WARNING)
 
@@ -102,24 +118,26 @@ class LocalChatterboxEngine(TTSInterface):
         
         try:
             logger.info(f"Model path: {self.config.model_path}")
-            if self._model_type == "english":   
-                from chatterbox.tts import ChatterboxTTS
-                self._model = ChatterboxTTS.from_local(
-                    ckpt_dir=self.config.model_path,
-                    device=self._device
-                )
-            elif self._model_type == "turbo":
-                from chatterbox.tts_turbo import ChatterboxTurboTTS
-                self._model = ChatterboxTurboTTS.from_local(
-                    ckpt_dir=self.config.model_path,
-                    device=self._device
-                )
-            else:
-                from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-                self._model = ChatterboxMultilingualTTS.from_local(
-                    ckpt_dir=self.config.model_path,
-                    device=self._device
-                )
+            
+            with suppress_output():
+                if self._model_type == "english":   
+                    from chatterbox.tts import ChatterboxTTS
+                    self._model = ChatterboxTTS.from_local(
+                        ckpt_dir=self.config.model_path,
+                        device=self._device
+                    )
+                elif self._model_type == "turbo":
+                    from chatterbox.tts_turbo import ChatterboxTurboTTS
+                    self._model = ChatterboxTurboTTS.from_local(
+                        ckpt_dir=self.config.model_path,
+                        device=self._device
+                    )
+                else:
+                    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+                    self._model = ChatterboxMultilingualTTS.from_local(
+                        ckpt_dir=self.config.model_path,
+                        device=self._device
+                    )
             
             self._sr = self._model.sr
             load_time = time.time() - start_time
@@ -150,21 +168,22 @@ class LocalChatterboxEngine(TTSInterface):
         start_time = time.time()
         
         try:
-            if self._reference_audio:
-                wav = self._model.generate(
-                    text,
-                    audio_prompt_path=self._reference_audio,
-                    exaggeration=self.config.exaggeration,
-                    cfg_weight=self.config.cfg_weight
-                )
-            else:
-                if self._model_type == "multilingual":
+            with suppress_output():
+                if self._reference_audio:
                     wav = self._model.generate(
                         text,
-                        language_id=self.config.language_id
+                        audio_prompt_path=self._reference_audio,
+                        exaggeration=self.config.exaggeration,
+                        cfg_weight=self.config.cfg_weight
                     )
                 else:
-                    wav = self._model.generate(text)
+                    if self._model_type == "multilingual":
+                        wav = self._model.generate(
+                            text,
+                            language_id=self.config.language_id
+                        )
+                    else:
+                        wav = self._model.generate(text)
             
             inference_time = time.time() - start_time
             
