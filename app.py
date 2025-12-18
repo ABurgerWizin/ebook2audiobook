@@ -124,9 +124,9 @@ Examples:
         help='Path to voice reference audio for cloning')
     voice_group.add_argument('--custom_model', type=str,
         help='Path to custom Chatterbox model directory')
-    voice_group.add_argument('--model_type', type=str, default='english',
-        choices=['english', 'multilingual'],
-        help='Chatterbox model type (default: english)')
+    voice_group.add_argument('--model_type', type=str, default='turbo',
+        choices=['english', 'multilingual', 'turbo'],
+        help='Chatterbox model type (default: turbo)')
     voice_group.add_argument('--device', type=str, default=None,
         choices=['cpu', 'cuda', 'mps'],
         help='Compute device (auto-detected if not specified)')
@@ -144,6 +144,8 @@ Examples:
         help=f"Sampling temperature (default: {chatterbox_defaults['temperature']})")
     gen_group.add_argument('--language', type=str, default='en',
         help='Language code for multilingual model (default: en)')
+    gen_group.add_argument('--max_tokens', type=int, default=106,
+        help='Maximum tokens per batch (default: 100)')
     
     # Legacy/Deprecated (kept for compatibility)
     legacy_group = parser.add_argument_group('Legacy Options (deprecated)')
@@ -239,7 +241,8 @@ def run_headless(args: argparse.Namespace) -> int:
             exaggeration=args.exaggeration,
             cfg_weight=args.cfg_weight,
             temperature=args.temperature,
-            language_id=args.language
+            language_id=args.language,
+            max_tokens_per_batch=args.max_tokens
         )
         
         try:

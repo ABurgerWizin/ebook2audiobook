@@ -93,9 +93,16 @@ class TextCleaner:
         if not text:
             return ""
         
+        # Remove HTML/XML-like tags (e.g., <br>, <div>)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        
         # Remove unwanted characters
         for char in cls.CHARS_REMOVE:
             text = text.replace(char, '')
+        
+        # Remove footnotes attached to words (e.g., "Word1", "Word²")
+        # Matches numbers or superscripts immediately following a non-whitespace character
+        text = re.sub(r'(?<=\S)[\d\u00B2\u00B3\u00B9\u2070-\u2079]+', '', text)
         
         # Normalize quotes
         for old, new in cls.QUOTE_MAP.items():

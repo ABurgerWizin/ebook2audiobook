@@ -97,14 +97,20 @@ class LocalChatterboxEngine(TTSInterface):
         logging.getLogger("chatterbox").setLevel(logging.WARNING)
 
         logger.info(f"Loading Chatterbox [{self._model_type}] on {self._device}")
-        logger.info(f"Model path: {self.config.model_path}")
         
         start_time = time.time()
         
         try:
-            if self._model_type == "english":
+            logger.info(f"Model path: {self.config.model_path}")
+            if self._model_type == "english":   
                 from chatterbox.tts import ChatterboxTTS
                 self._model = ChatterboxTTS.from_local(
+                    ckpt_dir=self.config.model_path,
+                    device=self._device
+                )
+            elif self._model_type == "turbo":
+                from chatterbox.tts_turbo import ChatterboxTurboTTS
+                self._model = ChatterboxTurboTTS.from_local(
                     ckpt_dir=self.config.model_path,
                     device=self._device
                 )

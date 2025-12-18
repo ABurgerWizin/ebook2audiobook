@@ -292,7 +292,7 @@ def main():
     parser = argparse.ArgumentParser(description="Chatterbox TTS Server")
     parser.add_argument("--model_path", required=True, help="Path to Chatterbox model")
     parser.add_argument("--device", default="cuda", help="Device (cuda, cpu, mps)")
-    parser.add_argument("--model_type", default="english", choices=["english", "multilingual"])
+    parser.add_argument("--model_type", default="turbo", choices=["english", "multilingual", "turbo"])
     parser.add_argument("--host", default="0.0.0.0", help="Server host")
     parser.add_argument("--port", type=int, default=8000, help="Server port")
     
