@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Any, Iterator
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from lib.modules.text_processing import TextCleaner
+
 logger = logging.getLogger(__name__)
 
 
@@ -272,6 +274,10 @@ class EbookParser:
             
             # Extract text from HTML
             text = HTMLCleaner.extract_text(content)
+            
+            # Clean text (remove XML headers, artifacts, etc.)
+            text = TextCleaner.clean(text)
+            
             text = HTMLCleaner.normalize_whitespace(text)
             
             if not text or len(text.strip()) < 50:

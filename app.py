@@ -103,6 +103,8 @@ Examples:
         help='Run in headless CLI mode (no GUI)')
     mode_group.add_argument('--preview', '--dry-run', action='store_true', dest='preview',
         help='Preview segmentation without generating audio')
+    mode_group.add_argument('--preview-segments', type=int, default=16,
+        help='Number of segments per chapter to preview (default: 16)')
     mode_group.add_argument('--share', action='store_true',
         help='Create a public Gradio share link')
     
@@ -217,7 +219,7 @@ def run_headless(args: argparse.Namespace) -> int:
     if args.preview:
         for ebook_path in ebook_paths:
             logger.info(f"Previewing: {ebook_path.name}")
-            preview = preview_segmentation(str(ebook_path))
+            preview = preview_segmentation(str(ebook_path), preview_segments=args.preview_segments)
             print(preview)
         return 0
     

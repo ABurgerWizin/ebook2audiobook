@@ -97,6 +97,10 @@ class TextCleaner:
         text = re.sub(r'<\?xml[^>]*\?>', '', text, flags=re.IGNORECASE)
         text = re.sub(r'<!DOCTYPE[^>]*>', '', text, flags=re.IGNORECASE)
         
+        # Remove potential XML declaration artifacts that leaked into text
+        # e.g., "xml version='1.0' encoding='utf-8'? html"
+        text = re.sub(r'xml\s+version=[\'"].*?[\'"](\s+encoding=[\'"].*?[\'"])?.*?(html)?', '', text, flags=re.IGNORECASE)
+        
         # Remove HTML/XML-like tags (e.g., <br>, <div>)
         text = re.sub(r'<[^>]+>', ' ', text)
         

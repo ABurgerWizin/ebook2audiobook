@@ -57,6 +57,7 @@ class ConversionConfig:
     
     # Preview mode
     preview_only: bool = False
+    preview_segments: int = 16
     
     def __post_init__(self):
         if not self.model_path:
@@ -204,14 +205,14 @@ class ConversionPipeline:
             lines.append(f"  Estimated tokens: {result.total_tokens}")
             lines.append(f"  Sample segments:")
             
-            for seg in result.segments[:3]:
+            for seg in result.segments[:self.config.preview_segments]:
                 preview = seg.text[:60].replace('\n', ' ')
                 if len(seg.text) > 60:
                     preview += "..."
                 lines.append(f"    [{seg.segment_type.name:10s}] {preview}")
             
-            if len(result.segments) > 3:
-                lines.append(f"    ... and {len(result.segments) - 3} more segments")
+            if len(result.segments) > self.config.preview_segments:
+                lines.append(f"    ... and {len(result.segments) - self.config.preview_segments} more segments")
         
         lines.extend([
             "",
@@ -441,20 +442,22 @@ def convert_ebook_to_audiobook(
     return pipeline.convert()
 
 
-def preview_segmentation(ebook_path: str, max_tokens: int = 100) -> str:
+def preview_segmentation(ebook_path: str, max_tokens: int = 100, preview_segments: int = 16) -> str:
     """
     Preview how an ebook will be segmented.
     
     Args:
         ebook_path: Path to the ebook file
         max_tokens: Maximum tokens per segment
+        preview_segments: Number of segments to preview per chapter
     
     Returns:
         Human-readable preview string
     """
     config = ConversionConfig(
         ebook_path=ebook_path,
-        max_tokens_per_batch=max_tokens
+        max_tokens_per_batch=max_tokens,
+        preview_segments=preview_segments
     )
     
     pipeline = ConversionPipeline(config)
