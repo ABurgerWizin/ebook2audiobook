@@ -51,7 +51,7 @@ class ConversionConfig:
     language_id: str = "en"
     
     # Processing
-    max_tokens_per_batch: int = 100
+    max_tokens_per_batch: int = 54
     temp_format: str = "flac"
     cleanup_temp: bool = True
     
@@ -442,7 +442,7 @@ def convert_ebook_to_audiobook(
     return pipeline.convert()
 
 
-def preview_segmentation(ebook_path: str, max_tokens: int = 100, preview_segments: int = 16) -> str:
+def preview_segmentation(ebook_path: str, max_tokens: int = 54, preview_segments: int = 16) -> str:
     """
     Preview how an ebook will be segmented.
     

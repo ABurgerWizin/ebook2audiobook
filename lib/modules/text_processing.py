@@ -39,7 +39,7 @@ class TextSegment:
 @dataclass
 class BatchConfig:
     """Configuration for token-budget-aware batching."""
-    max_tokens_per_batch: int = 100
+    max_tokens_per_batch: int = 54
     min_tokens_per_batch: int = 5
 
 
