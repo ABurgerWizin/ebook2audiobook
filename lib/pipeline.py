@@ -206,8 +206,8 @@ class ConversionPipeline:
             lines.append(f"  Sample segments:")
             
             for seg in result.segments[:self.config.preview_segments]:
-                preview = seg.text[:60].replace('\n', ' ')
-                if len(seg.text) > 60:
+                preview = seg.text.replace('\n', ' ')
+                if len(seg.text) > 400:
                     preview += "..."
                 lines.append(f"    [{seg.segment_type.name:10s}] {preview}")
             
