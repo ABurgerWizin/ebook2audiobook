@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import List, Optional, Tuple
 import logging
+import tiktoken
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,6 @@ class TextSegment:
 class BatchConfig:
     """Configuration for token-budget-aware batching."""
     max_tokens_per_batch: int = 100
-    chars_per_token_estimate: float = 4.0
     min_tokens_per_batch: int = 5
 
 
@@ -93,6 +93,10 @@ class TextCleaner:
         if not text:
             return ""
         
+        # Remove XML/HTML declarations (e.g., <?xml ... ?>, <!DOCTYPE ... >)
+        text = re.sub(r'<\?xml[^>]*\?>', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'<!DOCTYPE[^>]*>', '', text, flags=re.IGNORECASE)
+        
         # Remove HTML/XML-like tags (e.g., <br>, <div>)
         text = re.sub(r'<[^>]+>', ' ', text)
         
@@ -133,10 +137,11 @@ class SmartSegmenter:
     Context-aware text segmentation for optimal TTS generation.
     
     Key principles:
-    - Sentences are atomic units (never split mid-sentence)
+    - Sentences are atomic units (never split mid-sentence unless too long)
     - Respect document structure (headers, paragraphs, captions)
     - Batch sentences to optimize GPU utilization
     - Preserve prosodic integrity
+    - Use accurate tokenization (tiktoken)
     """
     
     # Sentence boundary detection - matches period/exclamation/question
@@ -166,13 +171,25 @@ class SmartSegmenter:
     
     def __init__(self, config: Optional[BatchConfig] = None):
         self.config = config or BatchConfig()
+        try:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            logger.warning(f"Failed to load tiktoken, falling back to heuristic: {e}")
+            self.tokenizer = None
     
     def estimate_tokens(self, text: str) -> int:
-        """Estimate token count using character-based heuristic."""
+        """Estimate token count using tiktoken if available, else heuristic."""
         if not text:
             return 0
+        if self.tokenizer:
+            try:
+                return len(self.tokenizer.encode(text))
+            except Exception:
+                pass
+        
+        # Fallback heuristic
         normalized = ' '.join(text.split())
-        return max(1, int(len(normalized) / self.config.chars_per_token_estimate))
+        return max(1, int(len(normalized) / 4.0))
     
     def classify_segment(self, text: str) -> SegmentType:
         """Classify a text segment by its type."""
@@ -206,27 +223,98 @@ class SmartSegmenter:
     def extract_sentences(self, text: str) -> List[str]:
         """
         Extract sentences as atomic prosodic units.
-        
-        Preserves stylistic punctuation within sentences:
-        - "You. Don't. Talk. About. Fightclub." -> single sentence
-        - Standard sentences split at boundaries with capital letters
         """
         if not text.strip():
             return []
         
         sentences = self.SENTENCE_BOUNDARY.split(text)
         return [s.strip() for s in sentences if s.strip()]
+
+    def split_long_sentence(self, text: str, max_tokens: int) -> List[str]:
+        """
+        Split a long sentence into smaller chunks at natural breakpoints.
+        Prioritizes splitting at commas, semicolons, colons.
+        Fallback to splitting by words if no natural breaks found.
+        """
+        if self.estimate_tokens(text) <= max_tokens:
+            return [text]
+            
+        # Try splitting by natural pauses first
+        delimiters = [
+            (r'(?<=[;:—])\s+', 1),  # Strong breaks
+            (r'(?<=[,])\s+', 0.5),   # Soft breaks
+        ]
+        
+        for pattern, _ in delimiters:
+            parts = re.split(pattern, text)
+            if len(parts) > 1:
+                result = []
+                current_chunk = []
+                current_tokens = 0
+                
+                for part in parts:
+                    part_tokens = self.estimate_tokens(part)
+                    
+                    # If single part is still too big, we'll need to recurse or force split
+                    if part_tokens > max_tokens:
+                         # Flush current chunk if any
+                        if current_chunk:
+                            result.append(' '.join(current_chunk))
+                            current_chunk = []
+                            current_tokens = 0
+                        
+                        # Recurse on the large part or force split
+                        # Since we are already splitting by delimiters, further recursion 
+                        # might not find better delimiters. We can force split at spaces.
+                        result.extend(self._force_split_words(part, max_tokens))
+                        continue
+
+                    if current_tokens + part_tokens > max_tokens:
+                        if current_chunk:
+                            result.append(' '.join(current_chunk))
+                        current_chunk = [part]
+                        current_tokens = part_tokens
+                    else:
+                        current_chunk.append(part)
+                        current_tokens += part_tokens
+                
+                if current_chunk:
+                    result.append(' '.join(current_chunk))
+                
+                # Check if we successfully reduced all chunks
+                if all(self.estimate_tokens(s) <= max_tokens for s in result):
+                    return result
+        
+        # If natural splitting failed to reduce size, force split by words
+        return self._force_split_words(text, max_tokens)
+
+    def _force_split_words(self, text: str, max_tokens: int) -> List[str]:
+        """Force split text by words to fit in max_tokens."""
+        words = text.split()
+        result = []
+        current_chunk = []
+        current_tokens = 0
+        
+        for word in words:
+            word_tokens = self.estimate_tokens(word)
+            if current_tokens + word_tokens > max_tokens:
+                if current_chunk:
+                    result.append(' '.join(current_chunk))
+                current_chunk = [word]
+                current_tokens = word_tokens
+            else:
+                current_chunk.append(word)
+                current_tokens += word_tokens
+                
+        if current_chunk:
+            result.append(' '.join(current_chunk))
+            
+        return result
+
     
     def segment_text(self, text: str, chapter_idx: int = 0) -> SegmentationResult:
         """
         Segment text into optimal batches for TTS processing.
-        
-        Algorithm:
-        1. Split by paragraphs (double newlines)
-        2. Classify each paragraph (header, caption, regular text)
-        3. Extract sentences from regular paragraphs
-        4. Batch sentences respecting token budget
-        5. Keep headers and special segments as individual units
         """
         if not text:
             return SegmentationResult([], 0, 0, 0)
@@ -260,6 +348,18 @@ class SmartSegmenter:
             if not sentences:
                 continue
             
+            # Flatten sentences list (handle long sentence splitting)
+            processed_sentences = []
+            for sent in sentences:
+                sent_tokens = self.estimate_tokens(sent)
+                if sent_tokens > self.config.max_tokens_per_batch:
+                    # Split long sentence
+                    split_parts = self.split_long_sentence(sent, self.config.max_tokens_per_batch)
+                    processed_sentences.extend(split_parts)
+                else:
+                    processed_sentences.append(sent)
+            
+            sentences = processed_sentences
             num_sentences += len(sentences)
             
             # Batch sentences by token budget
@@ -268,34 +368,6 @@ class SmartSegmenter:
             
             for sentence in sentences:
                 sent_tokens = self.estimate_tokens(sentence)
-                
-                # If single sentence exceeds budget, it becomes its own segment
-                if sent_tokens > self.config.max_tokens_per_batch:
-                    # Flush current batch first
-                    if current_batch:
-                        batch_text = ' '.join(current_batch)
-                        segments.append(TextSegment(
-                            text=batch_text,
-                            segment_type=seg_type,
-                            estimated_tokens=current_tokens,
-                            chapter_idx=chapter_idx,
-                            paragraph_idx=para_idx
-                        ))
-                        total_tokens += current_tokens
-                        current_batch = []
-                        current_tokens = 0
-                    
-                    # Add oversized sentence as its own segment
-                    segments.append(TextSegment(
-                        text=sentence,
-                        segment_type=seg_type,
-                        estimated_tokens=sent_tokens,
-                        chapter_idx=chapter_idx,
-                        paragraph_idx=para_idx
-                    ))
-                    total_tokens += sent_tokens
-                    logger.warning(f"Sentence exceeds token budget: {sent_tokens} tokens")
-                    continue
                 
                 # Check if adding this sentence would exceed budget
                 if current_tokens + sent_tokens > self.config.max_tokens_per_batch:
@@ -349,5 +421,3 @@ def segment_text(text: str, max_tokens: int = 100) -> List[str]:
     segmenter = SmartSegmenter(config)
     result = segmenter.segment_text(text)
     return [seg.text for seg in result.segments]
-
-

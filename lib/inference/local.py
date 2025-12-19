@@ -9,9 +9,11 @@ import logging
 import os
 import sys
 import contextlib
+import functools
 from typing import Optional, List
 from pathlib import Path
 
+import tqdm
 import torch
 import torchaudio
 
@@ -23,6 +25,17 @@ logger = logging.getLogger(__name__)
 @contextlib.contextmanager
 def suppress_output():
     """Suppress stdout and stderr to hide underlying library progress bars."""
+    # Backup original tqdm
+    original_tqdm = tqdm.tqdm
+    
+    # Create a no-op tqdm that forces disable=True
+    def tqdm_noop(*args, **kwargs):
+        kwargs['disable'] = True
+        return original_tqdm(*args, **kwargs)
+    
+    # Monkeypatch tqdm
+    tqdm.tqdm = tqdm_noop
+    
     with open(os.devnull, "w") as devnull:
         old_stdout = sys.stdout
         old_stderr = sys.stderr
@@ -32,6 +45,8 @@ def suppress_output():
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            # Restore original tqdm
+            tqdm.tqdm = original_tqdm
 
 
 class LocalChatterboxEngine(TTSInterface):
