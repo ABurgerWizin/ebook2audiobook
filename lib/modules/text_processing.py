@@ -160,14 +160,14 @@ class SmartSegmenter:
     HEADER_PATTERNS = [
         re.compile(r'^#{1,6}\s+.+$', re.MULTILINE),  # Markdown headers
         re.compile(r'^[A-Z][A-Z\s]{2,50}$', re.MULTILINE),  # ALL CAPS lines
-        re.compile(r'^Chapter\s+\d+', re.IGNORECASE),  # "Chapter X"
-        re.compile(r'^Part\s+[IVXLCDM\d]+', re.IGNORECASE),  # "Part I/1"
+        re.compile(r'^Chapter\s+\d+$', re.IGNORECASE),  # "Chapter X"
+        re.compile(r'^Part\s+[IVXLCDM\d]+$', re.IGNORECASE),  # "Part I/1"
     ]
     
     # Image caption patterns
     CAPTION_PATTERNS = [
-        re.compile(r'^(?:Figure|Fig\.?|Image|Photo|Illustration)\s*\d*[:\.]?\s*.+', re.IGNORECASE),
-        re.compile(r'^\[(?:Image|Photo|Figure).*?\]', re.IGNORECASE),
+        re.compile(r'^(?:Figure|Fig\.?|Image|Photo|Illustration)\s*\d*[:\.]?\s*.+$', re.IGNORECASE),
+        re.compile(r'^\[(?:Image|Photo|Figure).*?\]$', re.IGNORECASE),
     ]
     
     # Footnote patterns
@@ -337,15 +337,25 @@ class SmartSegmenter:
             # Headers, captions, footnotes: keep as single segments
             if seg_type in (SegmentType.HEADER, SegmentType.IMAGE_CAPTION, SegmentType.FOOTNOTE):
                 tokens = self.estimate_tokens(paragraph)
-                segments.append(TextSegment(
-                    text=paragraph,
-                    segment_type=seg_type,
-                    estimated_tokens=tokens,
-                    chapter_idx=chapter_idx,
-                    paragraph_idx=para_idx
-                ))
-                total_tokens += tokens
-                continue
+                
+                # Safety check: if special segment exceeds limit, treat as paragraph
+                if tokens > self.config.max_tokens_per_batch:
+                    logger.warning(
+                        f"Special segment type {seg_type.name} exceeds token limit ({tokens} > {self.config.max_tokens_per_batch}). "
+                        "Reclassifying as PARAGRAPH to enforce splitting."
+                    )
+                    seg_type = SegmentType.PARAGRAPH
+                    # Fall through to paragraph processing...
+                else:
+                    segments.append(TextSegment(
+                        text=paragraph,
+                        segment_type=seg_type,
+                        estimated_tokens=tokens,
+                        chapter_idx=chapter_idx,
+                        paragraph_idx=para_idx
+                    ))
+                    total_tokens += tokens
+                    continue
             
             # Regular paragraphs: extract sentences and batch
             sentences = self.extract_sentences(paragraph)
@@ -357,7 +367,6 @@ class SmartSegmenter:
             for sent in sentences:
                 sent_tokens = self.estimate_tokens(sent)
                 if sent_tokens > self.config.max_tokens_per_batch:
-                    # Split long sentence
                     split_parts = self.split_long_sentence(sent, self.config.max_tokens_per_batch)
                     processed_sentences.extend(split_parts)
                 else:
