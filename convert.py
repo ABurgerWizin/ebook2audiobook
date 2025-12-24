@@ -94,6 +94,12 @@ Examples:
         default="cuda",
         help="Device for inference (default: cuda)"
     )
+    parser.add_argument(
+        "--max-vram",
+        type=int,
+        default=12,
+        help="Maximum VRAM usage in GB (default: 12)"
+    )
     
     # Generation parameters
     parser.add_argument(
@@ -124,8 +130,8 @@ Examples:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=100,
-        help="Maximum tokens per segment (default: 100)"
+        default=36,
+        help="Maximum tokens per segment (default: 36)"
     )
     parser.add_argument(
         "--temp-format",
@@ -179,6 +185,7 @@ Examples:
         model_path=args.model_path or "",
         model_type=args.model_type,
         device=args.device,
+        max_vram=args.max_vram,
         exaggeration=args.exaggeration,
         cfg_weight=args.cfg_weight,
         temperature=args.temperature,
