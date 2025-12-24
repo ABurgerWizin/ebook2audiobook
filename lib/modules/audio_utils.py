@@ -63,6 +63,11 @@ class AudioPipeline:
         chapter_dir = self.get_chapter_dir(chapter_idx)
         return chapter_dir / f'chunk_{chunk_idx:04d}{self._get_temp_ext()}'
     
+    def has_chunk(self, chapter_idx: int, chunk_idx: int) -> bool:
+        """Check if a specific audio chunk already exists."""
+        chunk_path = self.get_chunk_path(chapter_idx, chunk_idx)
+        return chunk_path.exists() and chunk_path.stat().st_size > 0
+
     def save_audio_chunk(
         self,
         audio_data: Union[bytes, BinaryIO],

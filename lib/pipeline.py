@@ -43,6 +43,7 @@ class ConversionConfig:
     model_path: str = ""
     model_type: str = "english"
     device: str = "cuda"
+    max_vram: int = 12
     
     # Generation parameters
     exaggeration: float = 0.5
@@ -51,7 +52,7 @@ class ConversionConfig:
     language_id: str = "en"
     
     # Processing
-    max_tokens_per_batch: int = 54
+    max_tokens_per_batch: int = 36
     temp_format: str = "flac"
     cleanup_temp: bool = True
     
@@ -139,6 +140,110 @@ class ConversionPipeline:
     def _get_session_id(self) -> str:
         """Generate a short unique session ID."""
         return str(uuid.uuid4())[:8]
+
+    def _find_existing_job(self, safe_name: str) -> Optional[Path]:
+        """Find an existing incomplete job for this ebook and model."""
+        base_dir = Path(tmp_dir) / "audio_work"
+        if not base_dir.exists():
+            return None
+            
+        # Look for directories starting with safe_name
+        # safe_name is sanitized, so glob should be safe
+        candidates = list(base_dir.glob(f"{safe_name}_*"))
+        
+        # Sort by modification time (newest first)
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        for candidate in candidates:
+            if not candidate.is_dir():
+                continue
+                
+            # Check for metadata file
+            meta_files = list(candidate.glob("metadata_*.json"))
+            if not meta_files:
+                continue
+                
+            # Read latest metadata
+            meta_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            try:
+                with open(meta_files[0], 'r') as f:
+                    meta = json.load(f)
+                    
+                # Check if it matches our current job
+                # We check ebook path and model type as primary keys
+                if (meta.get("ebook_path") == str(self.config.ebook_path) and 
+                    meta.get("model_type") == self.config.model_type):
+                    return candidate
+            except Exception as e:
+                logger.warning(f"Failed to read metadata from {candidate}: {e}")
+                continue
+                
+        return None
+
+    def _manage_session(self, safe_name: str) -> str:
+        """Setup session directory and handle recovery."""
+        existing_job = self._find_existing_job(safe_name)
+        session_path = None
+        session_dir = ""
+        
+        if existing_job:
+            logger.info(f"Found existing job: {existing_job.name}")
+            session_dir = existing_job.name
+            session_path = existing_job
+            
+            # Check metadata for compatibility
+            meta_files = list(session_path.glob("metadata_*.json"))
+            meta_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            
+            try:
+                if meta_files:
+                    with open(meta_files[0], 'r') as f:
+                        old_meta = json.load(f)
+                    
+                    old_max_tokens = old_meta.get("max_tokens_per_batch")
+                    
+                    if old_max_tokens != self.config.max_tokens_per_batch:
+                        logger.info("Parameters changed (max_tokens), clearing existing chunks but keeping job...")
+                        # Delete all chunks
+                        for chunk in session_path.rglob("chunk_*"):
+                            if chunk.suffix in ['.flac', '.wav', '.mp3']:
+                                chunk.unlink()
+                    else:
+                        logger.info("Resuming from existing chunks...")
+            except Exception as e:
+                logger.warning(f"Error checking metadata: {e}")
+                
+        else:
+            # Create new session
+            session_id = self._get_session_id()
+            session_dir = f"{safe_name}_{session_id}"
+            session_path = Path(tmp_dir) / "audio_work" / session_dir
+            session_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created new job: {session_dir}")
+
+        # Write new metadata
+        timestamp = int(time.time())
+        meta = {
+            "ebook_path": str(self.config.ebook_path),
+            "model_type": self.config.model_type,
+            "max_tokens_per_batch": self.config.max_tokens_per_batch,
+            "voice_path": self.config.voice_path,
+            "language_id": self.config.language_id,
+            "timestamp": timestamp,
+            "config": {
+                "exaggeration": self.config.exaggeration,
+                "cfg_weight": self.config.cfg_weight,
+                "temperature": self.config.temperature
+            }
+        }
+        
+        try:
+            with open(session_path / f"metadata_{timestamp}.json", 'w') as f:
+                json.dump(meta, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write metadata: {e}")
+            
+        return session_dir
 
     def _get_safe_name(self, filename: str) -> str:
         """Sanitize and shorten filename for directory usage."""
@@ -289,6 +394,27 @@ class ConversionPipeline:
                     if segment.text.strip() in TTS_SML.values():
                         continue
                     
+                    # Check if chunk already exists (Recovery)
+                    if self._audio_pipeline.has_chunk(chapter.index, seg_idx):
+                        # Skip generation
+                        self.progress.completed_segments += 1
+                        
+                        # Just update estimated time based on 0 elapsed for this chunk? 
+                        # Or better: keep elapsed time as is (since we didn't spend time)
+                        # but reduce remaining count.
+                        
+                        # We still need to update the progress display
+                        if self.progress.completed_segments > 0 and self.progress.elapsed_time > 0:
+                            # Use current average for estimation
+                            avg_time = self.progress.elapsed_time / (self.progress.completed_segments - seg_idx) # Rough approx or just use current avg
+                            # Simpler: just use global average so far
+                            avg_time = self.progress.elapsed_time / max(1, self.progress.completed_segments)
+                            remaining = self.progress.total_segments - self.progress.completed_segments
+                            self.progress.estimated_remaining = avg_time * remaining
+                        
+                        self._update_progress()
+                        continue
+
                     # Generate audio
                     result = self._engine.generate(segment.text)
                     
@@ -343,14 +469,20 @@ class ConversionPipeline:
             return output_path
         
         finally:
-            self._cleanup()
+            # Always release memory resources
+            self._release_resources()
+            
+        # Only cleanup files on success
+        self._cleanup_files()
+        return output_path
     
     def _init_components(self):
         """Initialize all pipeline components."""
         # Generate session ID and directory name
-        session_id = self._get_session_id()
         safe_name = self._get_safe_name(self.config.ebook_path)
-        session_dir = f"{safe_name}_{session_id}"
+        
+        # Use managed session (recovery/new)
+        session_dir = self._manage_session(safe_name)
         
         # Parser
         self._parser = EbookParser(
@@ -368,6 +500,7 @@ class ConversionPipeline:
             model_path=self.config.model_path,
             model_type=self.config.model_type,
             device=self.config.device,
+            max_vram=self.config.max_vram,
             exaggeration=self.config.exaggeration,
             cfg_weight=self.config.cfg_weight,
             temperature=self.config.temperature,
@@ -395,12 +528,15 @@ class ConversionPipeline:
             config=audio_config
         )
     
-    def _cleanup(self):
-        """Cleanup resources."""
+    def _release_resources(self):
+        """Release memory resources."""
         if self._engine:
             self._engine.cleanup()
         if self._parser:
             self._parser.cleanup()
+
+    def _cleanup_files(self):
+        """Cleanup temporary files."""
         if self._audio_pipeline and self.config.cleanup_temp:
             # First cleanup standard chapter files
             self._audio_pipeline.cleanup_all()
@@ -411,6 +547,11 @@ class ConversionPipeline:
                     logger.debug(f"Removed session directory: {self._audio_pipeline.work_dir}")
                 except Exception as e:
                     logger.warning(f"Failed to remove session directory: {e}")
+
+    def _cleanup(self):
+        """Deprecated: Use _release_resources and _cleanup_files."""
+        self._release_resources()
+        self._cleanup_files()
 
 
 def convert_ebook_to_audiobook(

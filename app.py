@@ -132,6 +132,8 @@ Examples:
     voice_group.add_argument('--device', type=str, default=None,
         choices=['cpu', 'cuda', 'mps'],
         help='Compute device (auto-detected if not specified)')
+    voice_group.add_argument('--max_vram', type=int, default=12,
+        help='Maximum VRAM usage in GB (default: 12)')
     
     # Chatterbox generation parameters
     gen_group = parser.add_argument_group('Generation Parameters')
@@ -240,6 +242,7 @@ def run_headless(args: argparse.Namespace) -> int:
             model_path=model_path,
             model_type=args.model_type,
             device=device,
+            max_vram=args.max_vram,
             exaggeration=args.exaggeration,
             cfg_weight=args.cfg_weight,
             temperature=args.temperature,

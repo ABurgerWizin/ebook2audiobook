@@ -18,6 +18,7 @@ import torch
 import torchaudio
 
 from .abstract import TTSInterface, TTSConfig, TTSResult
+from lib.classes.vram_detector import VRAMDetector
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,48 @@ class LocalChatterboxEngine(TTSInterface):
         self._reference_audio = config.reference_audio
         self._sr = config.sample_rate
         
+        # Check VRAM
+        self._check_vram_status()
+        
         # Load model
         self._load_model()
     
+    def _check_vram_status(self):
+        """Check and log VRAM status against limits."""
+        if self._device == "cpu":
+            return
+            
+        try:
+            detector = VRAMDetector()
+            vram_info = detector.detect_vram(self._device)
+            
+            if isinstance(vram_info, dict):
+                free_gb = vram_info.get("free_vram_gb", 0)
+                total_gb = vram_info.get("total_vram_gb", 0)
+                
+                logger.info(f"VRAM Status: {free_gb:.2f}GB free / {total_gb:.2f}GB total")
+                
+                if self.config.max_vram and total_gb > self.config.max_vram:
+                    logger.info(f"System VRAM ({total_gb:.2f}GB) exceeds configured limit ({self.config.max_vram}GB)")
+                    # Note: We can't easily restrict what torch sees without setting CUDA_VISIBLE_DEVICES
+                    # or using torch.cuda.set_per_process_memory_fraction
+                    try:
+                        fraction = min(1.0, self.config.max_vram / total_gb)
+                        if self._device.startswith("cuda"):
+                            device_idx = 0
+                            if ":" in self._device:
+                                try:
+                                    device_idx = int(self._device.split(":")[1])
+                                except:
+                                    pass
+                            torch.cuda.set_per_process_memory_fraction(fraction, device_idx)
+                            logger.info(f"Restricted PyTorch VRAM usage to {fraction:.2%} ({self.config.max_vram}GB)")
+                    except Exception as e:
+                        logger.warning(f"Could not set VRAM limit: {e}")
+                        
+        except Exception as e:
+            logger.warning(f"Failed to check VRAM status: {e}")
+
     def _validate_device(self, device: str) -> str:
         """Validate and normalize device specification."""
         if device == "cpu":
