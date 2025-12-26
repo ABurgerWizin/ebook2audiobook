@@ -148,8 +148,8 @@ Examples:
         help=f"Sampling temperature (default: {chatterbox_defaults['temperature']})")
     gen_group.add_argument('--language', type=str, default='en',
         help='Language code for multilingual model (default: en)')
-    gen_group.add_argument('--max_tokens', type=int, default=106,
-        help='Maximum tokens per batch (default: 100)')
+    gen_group.add_argument('--max_tokens', type=int, default=48,
+        help='Maximum tokens per batch (default: 48)')
     
     # Legacy/Deprecated (kept for compatibility)
     legacy_group = parser.add_argument_group('Legacy Options (deprecated)')

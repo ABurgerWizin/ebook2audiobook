@@ -97,8 +97,8 @@ Examples:
     parser.add_argument(
         "--max-vram",
         type=int,
-        default=12,
-        help="Maximum VRAM usage in GB (default: 12)"
+        default=11,
+        help="Maximum VRAM usage in GB (default: 11)"
     )
     
     # Generation parameters
@@ -130,8 +130,8 @@ Examples:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=36,
-        help="Maximum tokens per segment (default: 36)"
+        default=48,
+        help="Maximum tokens per segment (default: 48)"
     )
     parser.add_argument(
         "--temp-format",

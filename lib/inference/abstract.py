@@ -26,7 +26,7 @@ class TTSConfig:
     sample_rate: int = 24000
     
     # Resource limits
-    max_vram: int = 12  # Max VRAM in GB
+    max_vram: int = 11  # Max VRAM in GB
     
     # Reference audio for voice cloning
     reference_audio: Optional[str] = None

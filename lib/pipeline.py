@@ -43,7 +43,7 @@ class ConversionConfig:
     model_path: str = ""
     model_type: str = "english"
     device: str = "cuda"
-    max_vram: int = 12
+    max_vram: int = 11
     
     # Generation parameters
     exaggeration: float = 0.5
@@ -52,7 +52,7 @@ class ConversionConfig:
     language_id: str = "en"
     
     # Processing
-    max_tokens_per_batch: int = 36
+    max_tokens_per_batch: int = 48
     temp_format: str = "flac"
     cleanup_temp: bool = True
     
