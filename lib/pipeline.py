@@ -170,10 +170,26 @@ class ConversionPipeline:
                     meta = json.load(f)
                     
                 # Check if it matches our current job
-                # We check ebook path and model type as primary keys
-                if (meta.get("ebook_path") == str(self.config.ebook_path) and 
-                    meta.get("model_type") == self.config.model_type):
-                    return candidate
+                # We check ebook path, voice path, model type and model path as primary keys
+                
+                # 1. Ebook path (Must match)
+                if meta.get("ebook_path") != str(self.config.ebook_path):
+                    continue
+                    
+                # 2. Model type (Must match)
+                if meta.get("model_type") != self.config.model_type:
+                    continue
+                    
+                # 3. Voice path (Check if present in meta, for retro-compatibility)
+                current_voice = str(self.config.voice_path) if self.config.voice_path else None
+                if "voice_path" in meta and meta.get("voice_path") != current_voice:
+                    continue
+                    
+                # 4. Model path (Check if present in meta, for retro-compatibility)
+                if "model_path" in meta and meta.get("model_path") != str(self.config.model_path):
+                    continue
+                
+                return candidate
             except Exception as e:
                 logger.warning(f"Failed to read metadata from {candidate}: {e}")
                 continue
@@ -226,6 +242,7 @@ class ConversionPipeline:
         meta = {
             "ebook_path": str(self.config.ebook_path),
             "model_type": self.config.model_type,
+            "model_path": str(self.config.model_path),
             "max_tokens_per_batch": self.config.max_tokens_per_batch,
             "voice_path": self.config.voice_path,
             "language_id": self.config.language_id,
