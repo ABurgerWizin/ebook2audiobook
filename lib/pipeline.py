@@ -381,6 +381,21 @@ class ConversionPipeline:
             for chapter in parse_result.chapters:
                 logger.info(f"Processing chapter {chapter.index + 1}: {chapter.title}")
                 self.progress.current_chapter = chapter.title
+                
+                # Check if chapter already exists (Recovery)
+                if self._audio_pipeline.has_chapter(chapter.index):
+                    logger.info(f"Chapter {chapter.index + 1} already exists, skipping...")
+                    chapter_path = self._audio_pipeline.get_chapter_file_path(chapter.index)
+                    chapter_files.append(chapter_path)
+                    chapter_titles.append(chapter.title)
+                    
+                    self.progress.completed_chapters += 1
+                    # Add segments to completed count
+                    seg_result = pre_calculated_segments[chapter.index]
+                    self.progress.completed_segments += len(seg_result.segments)
+                    self._update_progress()
+                    continue
+
                 self._update_progress()
                 
                 # Use pre-calculated segments

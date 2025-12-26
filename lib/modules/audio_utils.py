@@ -63,6 +63,31 @@ class AudioPipeline:
         chapter_dir = self.get_chapter_dir(chapter_idx)
         return chapter_dir / f'chunk_{chunk_idx:04d}{self._get_temp_ext()}'
     
+    def get_chapter_file_path(self, chapter_idx: int) -> Path:
+        """
+        Get the path where the stitched chapter file should be.
+        
+        Args:
+            chapter_idx: Chapter index
+            
+        Returns:
+            Path object for the chapter file
+        """
+        return self.work_dir / f'chapter_{chapter_idx:03d}.{self.config.temp_format}'
+
+    def has_chapter(self, chapter_idx: int) -> bool:
+        """
+        Check if a stitched chapter file already exists.
+        
+        Args:
+            chapter_idx: Chapter index
+            
+        Returns:
+            True if chapter file exists and is not empty
+        """
+        chapter_path = self.get_chapter_file_path(chapter_idx)
+        return chapter_path.exists() and chapter_path.stat().st_size > 0
+    
     def has_chunk(self, chapter_idx: int, chunk_idx: int) -> bool:
         """Check if a specific audio chunk already exists."""
         chunk_path = self.get_chunk_path(chapter_idx, chunk_idx)
