@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple, Any, Iterator
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from lib.modules.text_processing import TextCleaner
+from lib.modules.table_processing import TableProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,9 @@ class EbookParser:
         """Parse a plain text file."""
         content = path.read_text(encoding='utf-8', errors='ignore')
         
+        # Linearize tables
+        content = TableProcessor.process_text(content)
+        
         # Normalize whitespace but preserve paragraphs
         content = TextCleaner.clean(content)
         
@@ -260,8 +264,7 @@ class EbookParser:
         return ParseResult(
             chapters=[chapter],
             metadata=EbookMetadata(
-                title=path.stem,
-                source_format='.txt'
+                title=path.stem
             ),
             source_format='.txt'
         )
@@ -269,6 +272,9 @@ class EbookParser:
     def _parse_md(self, path: Path) -> ParseResult:
         """Parse a markdown file."""
         content = path.read_text(encoding='utf-8', errors='ignore')
+        
+        # Linearize tables
+        content = TableProcessor.process_markdown(content)
         
         # Simple markdown parsing splitting by headers
         # We look for lines starting with #
@@ -322,8 +328,7 @@ class EbookParser:
         return ParseResult(
             chapters=chapters,
             metadata=EbookMetadata(
-                title=path.stem,
-                source_format=path.suffix.lower()
+                title=path.stem
             ),
             source_format=path.suffix.lower()
         )
