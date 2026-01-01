@@ -13,6 +13,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Callable
+from collections import deque
 
 from lib.conf import (
     tmp_dir, voices_dir, chatterbox_model_path, chatterbox_defaults,
@@ -130,6 +131,7 @@ class ConversionPipeline:
         self.config = config
         self.progress = ConversionProgress()
         self._progress_callback: Optional[Callable[[ConversionProgress], None]] = None
+        self._recent_processing_times = deque(maxlen=16)
         
         # Initialize components
         self._parser: Optional[EbookParser] = None
@@ -431,16 +433,9 @@ class ConversionPipeline:
                         # Skip generation
                         self.progress.completed_segments += 1
                         
-                        # Just update estimated time based on 0 elapsed for this chunk? 
-                        # Or better: keep elapsed time as is (since we didn't spend time)
-                        # but reduce remaining count.
-                        
-                        # We still need to update the progress display
-                        if self.progress.completed_segments > 0 and self.progress.elapsed_time > 0:
-                            # Use current average for estimation
-                            avg_time = self.progress.elapsed_time / (self.progress.completed_segments - seg_idx) # Rough approx or just use current avg
-                            # Simpler: just use global average so far
-                            avg_time = self.progress.elapsed_time / max(1, self.progress.completed_segments)
+                        # Update progress display with rolling average if available
+                        if self._recent_processing_times:
+                            avg_time = sum(self._recent_processing_times) / len(self._recent_processing_times)
                             remaining = self.progress.total_segments - self.progress.completed_segments
                             self.progress.estimated_remaining = avg_time * remaining
                         
@@ -448,7 +443,12 @@ class ConversionPipeline:
                         continue
 
                     # Generate audio
+                    chunk_start = time.time()
                     result = self._engine.generate(segment.text)
+                    chunk_duration = time.time() - chunk_start
+
+                    # Update rolling average
+                    self._recent_processing_times.append(chunk_duration)
                     
                     # Save chunk
                     audio_bytes = result.get_audio_bytes()
@@ -463,8 +463,8 @@ class ConversionPipeline:
                     self.progress.elapsed_time = time.time() - start_time
                     
                     # Estimate remaining time
-                    if self.progress.completed_segments > 0:
-                        avg_time = self.progress.elapsed_time / self.progress.completed_segments
+                    if self._recent_processing_times:
+                        avg_time = sum(self._recent_processing_times) / len(self._recent_processing_times)
                         remaining = self.progress.total_segments - self.progress.completed_segments
                         self.progress.estimated_remaining = avg_time * remaining
                     
