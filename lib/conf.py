@@ -160,7 +160,7 @@ audiobooks_cli_dir = os.path.abspath(os.path.join('audiobooks','cli'))
 ebook_formats = [
     ".epub", ".mobi", ".azw3", ".fb2", ".lrf", ".rb", ".snb", ".tcr", ".pdf",
     ".txt", ".rtf", ".doc", ".docx", ".html", ".odt", ".azw", ".tiff", ".tif",
-    ".png", ".jpg", ".jpeg", ".bmp",
+    ".png", ".jpg", ".jpeg", ".bmp", ".md", ".markdown",
 ]
 voice_formats = [
     ".mp4", ".m4b", ".m4a", ".mp3", ".wav", ".aac", ".flac", ".alac", ".ogg",

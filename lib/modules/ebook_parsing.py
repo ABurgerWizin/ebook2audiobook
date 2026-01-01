@@ -157,7 +157,8 @@ class EbookParser:
     
     SUPPORTED_FORMATS = {
         '.epub', '.mobi', '.azw', '.azw3', '.fb2', '.pdf',
-        '.txt', '.rtf', '.doc', '.docx', '.html', '.odt'
+        '.txt', '.rtf', '.doc', '.docx', '.html', '.odt',
+        '.md', '.markdown'
     }
     
     def __init__(self, temp_dir: Optional[str] = None):
@@ -184,6 +185,12 @@ class EbookParser:
         suffix = path.suffix.lower()
         if suffix not in self.SUPPORTED_FORMATS:
             raise ValueError(f"Unsupported format: {suffix}")
+        
+        # Direct parsing for text/markdown
+        if suffix == '.txt':
+            return self._parse_txt(path)
+        elif suffix in ('.md', '.markdown'):
+            return self._parse_md(path)
         
         # Convert to EPUB if needed (EPUB is our canonical format)
         if suffix != '.epub':
@@ -235,6 +242,92 @@ class EbookParser:
             source_format=source_format
         )
     
+    def _parse_txt(self, path: Path) -> ParseResult:
+        """Parse a plain text file."""
+        content = path.read_text(encoding='utf-8', errors='ignore')
+        
+        # Normalize whitespace but preserve paragraphs
+        content = TextCleaner.clean(content)
+        
+        # For now, treat as single chapter
+        chapter = Chapter(
+            title=path.stem,
+            content=content,
+            index=0,
+            source_file=path.name
+        )
+        
+        return ParseResult(
+            chapters=[chapter],
+            metadata=EbookMetadata(
+                title=path.stem,
+                source_format='.txt'
+            ),
+            source_format='.txt'
+        )
+
+    def _parse_md(self, path: Path) -> ParseResult:
+        """Parse a markdown file."""
+        content = path.read_text(encoding='utf-8', errors='ignore')
+        
+        # Simple markdown parsing splitting by headers
+        # We look for lines starting with #
+        lines = content.split('\n')
+        chapters = []
+        current_title = path.stem
+        current_lines = []
+        chapter_idx = 0
+        
+        for line in lines:
+            # Check for header
+            if re.match(r'^#+\s+', line):
+                # If we have content, save previous chapter
+                if current_lines:
+                    text = '\n'.join(current_lines).strip()
+                    if text:
+                        chapters.append(Chapter(
+                            title=current_title,
+                            content=text,
+                            index=chapter_idx,
+                            source_file=path.name
+                        ))
+                        chapter_idx += 1
+                
+                # Start new chapter
+                current_title = re.sub(r'^#+\s+', '', line).strip()
+                current_lines = []
+            else:
+                current_lines.append(line)
+        
+        # Add last chapter
+        if current_lines:
+            text = '\n'.join(current_lines).strip()
+            if text:
+                chapters.append(Chapter(
+                    title=current_title,
+                    content=text,
+                    index=chapter_idx,
+                    source_file=path.name
+                ))
+        
+        # If no chapters found (no headers), treat as single chapter
+        if not chapters:
+            chapters.append(Chapter(
+                title=path.stem,
+                content=content,
+                index=0,
+                source_file=path.name
+            ))
+            
+        return ParseResult(
+            chapters=chapters,
+            metadata=EbookMetadata(
+                title=path.stem,
+                source_format=path.suffix.lower()
+            ),
+            source_format=path.suffix.lower()
+        )
+
     def _extract_metadata(self, book) -> EbookMetadata:
         """Extract metadata from EPUB book."""
         from ebooklib import epub
