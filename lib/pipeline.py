@@ -443,12 +443,11 @@ class ConversionPipeline:
                         continue
 
                     # Generate audio
-                    chunk_start = time.time()
+                    # Track processing time for this specific chunk (including save overhead)
+                    # We use this for ETA calculation to separate it from total wall-clock elapsed time
+                    chunk_start_time = time.time()
+                    
                     result = self._engine.generate(segment.text)
-                    chunk_duration = time.time() - chunk_start
-
-                    # Update rolling average
-                    self._recent_processing_times.append(chunk_duration)
                     
                     # Save chunk
                     audio_bytes = result.get_audio_bytes()
@@ -459,10 +458,20 @@ class ConversionPipeline:
                         sample_rate=result.sample_rate
                     )
                     
+                    # Calculate chunk processing duration
+                    chunk_duration = time.time() - chunk_start_time
+                    
+                    # Update rolling average with actual processing time
+                    self._recent_processing_times.append(chunk_duration)
+                    
                     self.progress.completed_segments += 1
+                    
+                    # Update Total Elapsed Time (Wall Clock)
+                    # This tracks the total time spent in this conversion session
                     self.progress.elapsed_time = time.time() - start_time
                     
-                    # Estimate remaining time
+                    # Update Estimated Time to Completion (ETA)
+                    # This is purely based on recent processing performance
                     if self._recent_processing_times:
                         avg_time = sum(self._recent_processing_times) / len(self._recent_processing_times)
                         remaining = self.progress.total_segments - self.progress.completed_segments
@@ -528,13 +537,23 @@ class ConversionPipeline:
         self._segmenter = SmartSegmenter(batch_config)
         
         # TTS Engine
+        # Handle Turbo mode constraints
+        # Turbo mode does not support exaggeration and cfg_weight parameters
+        eff_exaggeration = self.config.exaggeration
+        eff_cfg_weight = self.config.cfg_weight
+        
+        if self.config.model_type == "turbo":
+            logger.info("Turbo mode selected: Disabling exaggeration and CFG weight")
+            eff_exaggeration = 0.0  # Default neutral
+            eff_cfg_weight = 0.0    # Default neutral
+            
         tts_config = TTSConfig(
             model_path=self.config.model_path,
             model_type=self.config.model_type,
             device=self.config.device,
             max_vram=self.config.max_vram,
-            exaggeration=self.config.exaggeration,
-            cfg_weight=self.config.cfg_weight,
+            exaggeration=eff_exaggeration,
+            cfg_weight=eff_cfg_weight,
             temperature=self.config.temperature,
             language_id=self.config.language_id,
             reference_audio=self.config.voice_path
