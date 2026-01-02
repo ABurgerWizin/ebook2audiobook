@@ -198,6 +198,14 @@ INFERENCE_API_URL = os.environ.get('INFERENCE_API_URL', 'http://localhost:8000')
 chatterbox_model_path = os.environ.get('CHATTERBOX_MODEL_PATH', os.path.join(models_dir, 'chatterbox'))
 chatterbox_model_type = 'english'  # 'english' or 'multilingual'
 
+# Native optimization settings (FP16, Compile, etc.)
+# Can be disabled if experiencing stability issues
+chatterbox_optimize = {
+    "compile": True,
+    "warmup": True,
+    "fp16": True,
+}
+
 # Chatterbox inference defaults
 chatterbox_defaults = {
     "exaggeration": 0.5,

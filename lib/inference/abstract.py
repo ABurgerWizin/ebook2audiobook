@@ -34,6 +34,11 @@ class TTSConfig:
     # Language (for multilingual model)
     language_id: str = "en"
 
+    # Optimization
+    compile_model: bool = True
+    warmup: bool = True
+    use_fp16: bool = True
+
 
 @dataclass
 class TTSResult:

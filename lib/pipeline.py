@@ -16,7 +16,7 @@ from typing import Optional, List, Callable
 from collections import deque
 
 from lib.conf import (
-    tmp_dir, voices_dir, chatterbox_model_path, chatterbox_defaults,
+    tmp_dir, voices_dir, chatterbox_model_path, chatterbox_defaults, chatterbox_optimize,
     temp_audio_format, INFERENCE_MODE, INFERENCE_API_URL, TTS_SML
 )
 from lib.modules.text_processing import SmartSegmenter, BatchConfig, SegmentationResult, TextSegment
@@ -556,7 +556,11 @@ class ConversionPipeline:
             cfg_weight=eff_cfg_weight,
             temperature=self.config.temperature,
             language_id=self.config.language_id,
-            reference_audio=self.config.voice_path
+            reference_audio=self.config.voice_path,
+            # Apply optimizations from conf
+            compile_model=chatterbox_optimize["compile"],
+            warmup=chatterbox_optimize["warmup"],
+            use_fp16=chatterbox_optimize["fp16"]
         )
         
         if self.config.inference_mode == 'client':

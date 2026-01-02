@@ -174,33 +174,32 @@ class LocalChatterboxEngine(TTSInterface):
         try:
             logger.info(f"Model path: {self.config.model_path}")
             
-            with suppress_output():
-                if self._model_type == "english":   
-                    from chatterbox.tts import ChatterboxTTS
-                    self._model = ChatterboxTTS.from_local(
-                        ckpt_dir=self.config.model_path,
-                        device=self._device
-                    )
-                elif self._model_type == "turbo":
-                    from chatterbox.tts_turbo import ChatterboxTurboTTS
-                    self._model = ChatterboxTurboTTS.from_local(
-                        ckpt_dir=self.config.model_path,
-                        device=self._device
-                    )
-                else:
-                    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-                    self._model = ChatterboxMultilingualTTS.from_local(
-                        ckpt_dir=self.config.model_path,
-                        device=self._device
-                    )
-            
-            self._sr = self._model.sr
+            self._load_base_model()
             load_time = time.time() - start_time
             
             logger.info(f"Model loaded in {load_time:.2f}s")
             logger.info(f"Sample rate: {self._sr} Hz")
             
             if self._device.startswith("cuda"):
+                # Optimize: TF32
+                torch.set_float32_matmul_precision("high")
+                
+                # Optimize: FP16
+                if self.config.use_fp16:
+                    try:
+                        logger.info("Converting model to FP16 for speed/VRAM optimization")
+                        self._model.t3.half()
+                        self._model.s3gen.half()
+                        self._model.ve.half()
+                    except Exception as e:
+                        logger.error(f"FP16 conversion failed ({e}), reverting to FP32.")
+                        # Reload clean model
+                        self._load_base_model()
+
+                # Optimize: Compile & Warmup
+                if self.config.compile_model or self.config.warmup:
+                    self._try_optimize()
+
                 vram_gb = torch.cuda.memory_allocated(self._device) / 1024**3
                 logger.info(f"VRAM allocated: {vram_gb:.2f} GB")
         
@@ -211,6 +210,102 @@ class LocalChatterboxEngine(TTSInterface):
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
             raise
+    
+    def _load_base_model(self):
+        """Helper to load the base model (FP32) without optimizations."""
+        with suppress_output():
+            if self._model_type == "english":   
+                from chatterbox.tts import ChatterboxTTS
+                self._model = ChatterboxTTS.from_local(
+                    ckpt_dir=self.config.model_path,
+                    device=self._device
+                )
+            elif self._model_type == "turbo":
+                from chatterbox.tts_turbo import ChatterboxTurboTTS
+                self._model = ChatterboxTurboTTS.from_local(
+                    ckpt_dir=self.config.model_path,
+                    device=self._device
+                )
+            else:
+                from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+                self._model = ChatterboxMultilingualTTS.from_local(
+                    ckpt_dir=self.config.model_path,
+                    device=self._device
+                )
+        self._sr = self._model.sr
+
+    def _try_optimize(self):
+        """Attempt to warmup and compile the model."""
+        # 1. Check if we can run inference (need conditionals)
+        can_run = False
+        if hasattr(self._model, 'conds') and self._model.conds is not None:
+            can_run = True
+        elif self._reference_audio and os.path.exists(self._reference_audio):
+            # We can prepare conditionals
+            can_run = True
+        
+        if not can_run:
+            logger.info("Skipping warmup/compilation: No reference voice available yet.")
+            return
+
+        try:
+            # 2. Warmup (triggers lazy init of patched_model)
+            if self.config.warmup or self.config.compile_model:
+                self._warmup()
+
+            # 3. Compile
+            if self.config.compile_model:
+                self._compile_modules()
+                # Run warmup again to verify compilation isn't broken
+                self._warmup()
+        
+        except Exception as e:
+            logger.error(f"Optimization/Warmup failed ({e}), reverting to Safe Mode (FP32 Eager).")
+            # Reload clean model in safe mode
+            self._load_base_model()
+            # If we were in FP16, maybe that was the cause?
+            # Safe mode = standard FP32 loading.
+            # We do NOT re-apply optimizations.
+
+    def _warmup(self):
+        """Run a dummy generation to initialize lazy components."""
+        logger.info("Warming up model...")
+        # Don't catch exception here, let _try_optimize handle it to trigger rollback
+        with suppress_output():
+            # If we have ref audio but no conds, prepare them
+            if (not hasattr(self._model, 'conds') or self._model.conds is None) and self._reference_audio:
+                self._model.prepare_conditionals(self._reference_audio)
+            
+            # Short text
+            self._model.generate("Warmup.", temperature=0.1)
+
+    def _compile_modules(self):
+        """Apply torch.compile to critical components."""
+        # Avoid recompiling if already done
+        if getattr(self, '_is_compiled', False):
+            return
+
+        logger.info("Compiling model with torch.compile (mode='default')...")
+        # Compile T3 (Llama)
+        if hasattr(self._model.t3, 'patched_model'):
+            # Check if already compiled?
+            if not isinstance(self._model.t3.patched_model, torch._dynamo.eval_frame.OptimizedModule):
+                self._model.t3.patched_model = torch.compile(
+                    self._model.t3.patched_model, 
+                    mode="default"
+                )
+        
+        # Compile S3Gen decoder
+        if hasattr(self._model.s3gen, 'decoder'):
+                if not isinstance(self._model.s3gen.decoder, torch._dynamo.eval_frame.OptimizedModule):
+                self._model.s3gen.decoder = torch.compile(
+                    self._model.s3gen.decoder,
+                    mode="default"
+                )
+        
+        self._is_compiled = True
+        logger.info("Model compilation scheduled (will compile on next inference)")
+
     
     def generate(self, text: str) -> TTSResult:
         """Generate speech from text."""
@@ -295,6 +390,10 @@ class LocalChatterboxEngine(TTSInterface):
         
         self._reference_audio = str(path)
         self.config.reference_audio = str(path)
+
+        # Try optimization now that we have a voice
+        if self._device.startswith("cuda") and (self.config.warmup or self.config.compile_model):
+            self._try_optimize()
     
     def cleanup(self) -> None:
         """Release model and VRAM."""
