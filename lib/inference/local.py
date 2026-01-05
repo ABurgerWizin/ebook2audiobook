@@ -34,7 +34,6 @@ def suppress_output():
         kwargs['disable'] = True
         return original_tqdm(*args, **kwargs)
     
-    # Monkeypatch tqdm
     tqdm.tqdm = tqdm_noop
     
     with open(os.devnull, "w") as devnull:
@@ -46,7 +45,6 @@ def suppress_output():
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
-            # Restore original tqdm
             tqdm.tqdm = original_tqdm
 
 
@@ -77,7 +75,6 @@ class LocalChatterboxEngine(TTSInterface):
         if config is None:
             config = TTSConfig(**kwargs)
         else:
-            # Apply kwargs overrides
             for key, value in kwargs.items():
                 if hasattr(config, key):
                     setattr(config, key, value)
@@ -86,13 +83,16 @@ class LocalChatterboxEngine(TTSInterface):
         self._model = None
         self._model_type = config.model_type
         self._device = self._validate_device(config.device)
+        
+        if self._device == "cpu" and self.config.use_fp16:
+            logger.warning("FP16 requested on CPU; disabling to prevent type mismatch.")
+            self.config.use_fp16 = False
+
         self._reference_audio = config.reference_audio
         self._sr = config.sample_rate
         
-        # Check VRAM
         self._check_vram_status()
         
-        # Load model
         self._load_model()
     
     def _check_vram_status(self):
@@ -181,7 +181,6 @@ class LocalChatterboxEngine(TTSInterface):
             logger.info(f"Sample rate: {self._sr} Hz")
             
             if self._device.startswith("cuda"):
-                # Optimize: TF32
                 torch.set_float32_matmul_precision("high")
                 
                 # Optimize: FP16
@@ -193,10 +192,10 @@ class LocalChatterboxEngine(TTSInterface):
                         self._model.ve.half()
                     except Exception as e:
                         logger.error(f"FP16 conversion failed ({e}), reverting to FP32.")
+                        self.config.use_fp16 = False
                         # Reload clean model
                         self._load_base_model()
 
-                # Optimize: Compile & Warmup
                 if self.config.compile_model or self.config.warmup:
                     self._try_optimize()
 
@@ -213,6 +212,7 @@ class LocalChatterboxEngine(TTSInterface):
     
     def _load_base_model(self):
         """Helper to load the base model (FP32) without optimizations."""
+        
         with suppress_output():
             if self._model_type == "english":   
                 from chatterbox.tts import ChatterboxTTS
@@ -241,7 +241,6 @@ class LocalChatterboxEngine(TTSInterface):
         if hasattr(self._model, 'conds') and self._model.conds is not None:
             can_run = True
         elif self._reference_audio and os.path.exists(self._reference_audio):
-            # We can prepare conditionals
             can_run = True
         
         if not can_run:
@@ -256,16 +255,52 @@ class LocalChatterboxEngine(TTSInterface):
             # 3. Compile
             if self.config.compile_model:
                 self._compile_modules()
-                # Run warmup again to verify compilation isn't broken
                 self._warmup()
         
         except Exception as e:
             logger.error(f"Optimization/Warmup failed ({e}), reverting to Safe Mode (FP32 Eager).")
-            # Reload clean model in safe mode
+
+            # 1. Disable optimizations globally for this instance to prevent re-triggering
+            self.config.use_fp16 = False
+            self.config.compile_model = False
+            self.config.warmup = False
+
             self._load_base_model()
-            # If we were in FP16, maybe that was the cause?
-            # Safe mode = standard FP32 loading.
-            # We do NOT re-apply optimizations.
+
+    def _cast_conds_to_half(self):
+        """Recursively cast conditionals to half precision."""
+        if not hasattr(self._model, 'conds') or self._model.conds is None:
+            return
+
+        def _cast(obj):
+            if isinstance(obj, torch.Tensor):
+                # Only cast float tensors, leave longs (tokens) alone
+                if obj.is_floating_point():
+                    return obj.half()
+            elif isinstance(obj, dict):
+                return {k: _cast(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_cast(v) for v in obj]
+            elif hasattr(obj, '__dict__'):
+                for k, v in obj.__dict__.items():
+                    setattr(obj, k, _cast(v))
+            return obj
+
+        # Cast T3 conditionals
+        if hasattr(self._model.conds, 't3'):
+            _cast(self._model.conds.t3)
+        
+        # Cast Gen conditionals (dictionary)
+        if hasattr(self._model.conds, 'gen'):
+             self._model.conds.gen = _cast(self._model.conds.gen)
+             
+        # Also ensure the model submodules are in FP16 (in case reload reset them)
+        if self.config.use_fp16 and self._model:
+            self._model.t3.half()
+            self._model.s3gen.half()
+            self._model.ve.half()
+
+        logger.debug("Conditionals cast to FP16")
 
     def _warmup(self):
         """Run a dummy generation to initialize lazy components."""
@@ -276,7 +311,12 @@ class LocalChatterboxEngine(TTSInterface):
             if (not hasattr(self._model, 'conds') or self._model.conds is None) and self._reference_audio:
                 self._model.prepare_conditionals(self._reference_audio)
             
-            # Short text
+            # CRITICAL: Fix for "Float and Half" dtype mismatch
+            # prepare_conditionals creates Float32 tensors by default. 
+            # If we are in FP16 mode, we must cast them.
+            if self.config.use_fp16:
+                self._cast_conds_to_half()
+            
             self._model.generate("Warmup.", temperature=0.1)
 
     def _compile_modules(self):
@@ -286,9 +326,7 @@ class LocalChatterboxEngine(TTSInterface):
             return
 
         logger.info("Compiling model with torch.compile (mode='default')...")
-        # Compile T3 (Llama)
         if hasattr(self._model.t3, 'patched_model'):
-            # Check if already compiled?
             if not isinstance(self._model.t3.patched_model, torch._dynamo.eval_frame.OptimizedModule):
                 self._model.t3.patched_model = torch.compile(
                     self._model.t3.patched_model, 
@@ -320,9 +358,25 @@ class LocalChatterboxEngine(TTSInterface):
         try:
             with suppress_output():
                 if self._reference_audio:
+                    # We need to explicitly prepare conds here to handle casting
+                    # ChatterboxTTS.generate calls prepare_conditionals internally if audio_prompt_path is set,
+                    # but we can't intercept the created tensors there.
+                    # So we do it manually:
+                    
+                    # 1. Prepare (makes Float32)
+                    self._model.prepare_conditionals(
+                        self._reference_audio, 
+                        exaggeration=self.config.exaggeration
+                    )
+                    
+                    # 2. Cast if needed
+                    if self.config.use_fp16:
+                        self._cast_conds_to_half()
+                        
+                    # 3. Generate (without audio_prompt_path, using the conds we just set)
                     wav = self._model.generate(
                         text,
-                        audio_prompt_path=self._reference_audio,
+                        audio_prompt_path=None, # Use pre-calculated conds
                         exaggeration=self.config.exaggeration,
                         cfg_weight=self.config.cfg_weight
                     )
