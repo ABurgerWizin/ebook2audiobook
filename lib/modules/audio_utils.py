@@ -283,7 +283,7 @@ class ChapterStitcher:
         
         # Create metadata file for chapter markers
         metadata_file = None
-        if self.config.output_format in ('m4b', 'm4a', 'mp4'):
+        if self.config.output_format in ('m4b', 'm4a', 'mp4', 'mp3'):
             metadata_file = self._create_chapter_metadata(chapter_files, chapter_titles)
         
         try:
@@ -308,6 +308,8 @@ class ChapterStitcher:
                     cmd.extend(['-map_metadata', '1'])
             elif self.config.output_format == 'mp3':
                 cmd.extend(['-c:a', 'libmp3lame', '-b:a', '192k'])
+                if metadata_file:
+                    cmd.extend(['-map_metadata', '1'])
             elif self.config.output_format == 'flac':
                 cmd.extend(['-c:a', 'flac'])
             else:
@@ -346,11 +348,15 @@ class ChapterStitcher:
             for i, (title, start) in enumerate(zip(chapter_titles, timestamps)):
                 end = timestamps[i + 1] if i + 1 < len(timestamps) else start + self._get_duration(chapter_files[i])
                 
+                # Escape special characters in title (for FFMETADATA1)
+                # = ; # \
+                escaped_title = title.replace('\\', '\\\\').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+                
                 f.write("\n[CHAPTER]\n")
                 f.write("TIMEBASE=1/1000\n")
                 f.write(f"START={int(start * 1000)}\n")
                 f.write(f"END={int(end * 1000)}\n")
-                f.write(f"title={title}\n")
+                f.write(f"title={escaped_title}\n")
             
             return f.name
     

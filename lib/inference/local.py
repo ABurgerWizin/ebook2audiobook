@@ -298,11 +298,11 @@ class LocalChatterboxEngine(TTSInterface):
         # Compile S3Gen decoder
         if hasattr(self._model.s3gen, 'decoder'):
                 if not isinstance(self._model.s3gen.decoder, torch._dynamo.eval_frame.OptimizedModule):
-                self._model.s3gen.decoder = torch.compile(
-                    self._model.s3gen.decoder,
-                    mode="default"
-                )
-        
+                    self._model.s3gen.decoder = torch.compile(
+                        self._model.s3gen.decoder,
+                        mode="default"
+                    )
+            
         self._is_compiled = True
         logger.info("Model compilation scheduled (will compile on next inference)")
 
