@@ -294,7 +294,7 @@ class ChapterStitcher:
             ]
             
             if metadata_file:
-                cmd.extend(['-i', metadata_file])
+                cmd.extend(['-f', 'ffmetadata', '-i', metadata_file])
             
             # Add metadata
             if metadata:
@@ -305,11 +305,11 @@ class ChapterStitcher:
             if self.config.output_format in ('m4b', 'm4a', 'mp4'):
                 cmd.extend(['-c:a', 'aac', '-b:a', '128k'])
                 if metadata_file:
-                    cmd.extend(['-map_metadata', '1'])
+                    cmd.extend(['-map_metadata', '1', '-map_chapters', '1'])
             elif self.config.output_format == 'mp3':
                 cmd.extend(['-c:a', 'libmp3lame', '-b:a', '192k'])
                 if metadata_file:
-                    cmd.extend(['-map_metadata', '1'])
+                    cmd.extend(['-map_metadata', '1', '-map_chapters', '1'])
             elif self.config.output_format == 'flac':
                 cmd.extend(['-c:a', 'flac'])
             else:
