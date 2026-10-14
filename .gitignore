@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+build/
+*.egg-info/
+
+# Model weights and caches, repo local so they never leak into ~/.cache
+models/
+tmp/
+audiobooks/
+python_env/
+
+lib/__pycache__/__init__.cpython-311.pyc
+lib/__pycache__/__init__.cpython-312.pyc
+lib/__pycache__/conf.cpython-311.pyc
+lib/__pycache__/conf.cpython-312.pyc
+lib/__pycache__/lang.cpython-311.pyc
+lib/__pycache__/lang.cpython-312.pyc
+lib/modules/__pycache__/__init__.cpython-311.pyc
+lib/modules/__pycache__/audio_utils.cpython-311.pyc
+lib/modules/__pycache__/ebook_parsing.cpython-311.pyc
+lib/modules/__pycache__/text_processing.cpython-311.pyc
+
+**/__pycache__/**
+
+**tmp/*
+# AI tools
+.claude/
+.opencode/
+openspec/
+.cursor/
+

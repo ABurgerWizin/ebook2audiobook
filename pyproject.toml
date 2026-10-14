@@ -1,14 +1,6 @@
 [build-system]
-name = "ebook2audiobook"
 requires = ["setuptools >= 64"]
 build-backend = "setuptools.build_meta"
-
-[tool.poetry]
-name = "ebook2audiobook"
-version = "25.10.30"
-
-[tool.setuptools.dynamic]
-version = {file = "VERSION.txt"}
 
 [project]
 name = "ebook2audiobook"
@@ -16,46 +8,7 @@ description = "Convert eBooks to audiobooks with chapters and metadata"
 authors = [
     { name = "Drew Thomasson" }
 ]
-dependencies = [
-	"packaging",
-	"tqdm",
-	"torchvggish",
-	"num2words @ git+https://github.com/savoirfairelinux/num2words.git",
-	"regex",
-	"tqdm",
-	"docker",
-	"ebooklib",
-	"fastapi",
-	"beautifulsoup4",
-	"fugashi",
-	"sudachipy",
-	"sudachidict_core",
-	"pymupdf-layout",
-	"pytesseract",
-	"unidic",
-	"hangul-romanize",
-	"indic-nlp-library",
-	"iso639-lang",
-	"jieba",
-	"pycantonese",
-	"soynlp",
-	"pypinyin",
-	"pythainlp",
-	"mutagen",
-	"PyOpenGL",
-	"phonemizer-fork",
-	"pydub",
-	"demucs",
-	"unidecode",
-	"langdetect",
-	"stanza==1.10.1",
-	"pyannote-audio<=3.4.0",
-	"argostranslate<=1.10.0",
-	"gradio==5.49.1",
-	"torch<=2.7.1",
-	"torchaudio<=2.7.1",
-	"coqui-tts[languages]==0.27.2"
-]
+dynamic = ["version"]
 readme = "README.md"
 requires-python = ">3.9,<3.13"
 classifiers = [
@@ -63,7 +16,95 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-scripts = { "ebook2audiobook" = "app:main" }
+dependencies = [
+    "packaging",
+    "tqdm",
+    "torch<=2.7.1",
+    "torchaudio<=2.7.1",
+    "torchvggish",
+    "num2words @ git+https://github.com/savoirfairelinux/num2words.git",
+    "regex",
+    "docker",
+    "ebooklib",
+    "fastapi",
+    "huggingface_hub>=1.5,<2",
+    "soundfile",
+    "beautifulsoup4",
+    "fugashi",
+    "sudachipy",
+    "sudachidict_core",
+    "pymupdf-layout; python_version >= '3.11'",
+    "pytesseract",
+    "unidic",
+    "hangul-romanize",
+    "indic-nlp-library",
+    "iso639-lang",
+    "soynlp",
+    "jieba",
+    "pycantonese",
+    "pypinyin",
+    "pythainlp",
+    "mutagen",
+    "PyOpenGL",
+    "phonemizer-fork",
+    "pydub",
+    "demucs",
+    "unidecode",
+    "langdetect",
+    "stanza==1.10.1",
+    "pyannote-audio==3.4.0",
+    "argostranslate==1.10.0",
+    "gradio==5.49.1",
+    "tiktoken",
+]
+
+[project.optional-dependencies]
+# Chatterbox comes from a pinned git SHA: PyPI chatterbox-tts 0.1.7 predates the
+# v3 multilingual loader and cannot read t3_mtl23ls_v3.safetensors. Its own
+# metadata pins torch, transformers, safetensors, diffusers and gradio to exact
+# versions that clash with the list above, which is what tool.uv
+# override-dependencies relaxes. resemble-perth is restated here because uv
+# refuses a git URL that only a transitive dependency declares.
+chatterbox = [
+    "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox.git@65b18437",
+    "resemble-perth @ git+https://github.com/resemble-ai/Perth.git@master",
+    "librosa",
+    "s3tokenizer",
+    "conformer",
+    "diffusers",
+    "omegaconf",
+    "safetensors",
+    "transformers>=5.2,<6",
+    "pykakasi",
+    "spacy-pkuseg",
+    "pyloudnorm",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/DrewThomasson/ebook2audiobook"
+
+[project.scripts]
+ebook2audiobook = "app:main"
+
+[tool.uv]
+# Relaxations of pins carried by third party metadata. chatterbox-tts asks for
+# torch 2.6.0, transformers 5.2.0, diffusers 0.29.0, safetensors 0.5.3 and
+# gradio 6.8.0 exactly; the versions below are the ones this app is tested on.
+override-dependencies = [
+    "torch<=2.7.1",
+    "torchaudio<=2.7.1",
+    "transformers>=5.2,<6",
+    "diffusers>=0.29",
+    "safetensors>=0.8,<0.9",
+    "gradio==5.49.1",
+    "librosa",
+]
+
+[tool.setuptools]
+py-modules = ["app", "convert"]
+
+[tool.setuptools.packages.find]
+include = ["lib*"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION.txt"}
